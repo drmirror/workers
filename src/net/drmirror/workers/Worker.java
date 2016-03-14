@@ -172,7 +172,7 @@ public abstract class Worker {
 	}
 	
 	private void initializeUnits(Document workTable) {
-		SplitFinder sf = new SplitFinder(dataCollection, fieldName, numUnits);
+		SplitFinder sf = new SplitFinder(db, dataCollection, fieldName, numUnits);
 		List<Document> units = new ArrayList<Document>();
 		for (SplitFinder.Range r : sf.getRanges()) {
 			Document unit = new Document("lower_bound", r.lowerBound)

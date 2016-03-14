@@ -5,6 +5,8 @@ import java.util.Collections;
 import java.util.List;
 
 import org.bson.Document;
+import org.bson.json.JsonMode;
+import org.bson.json.JsonWriterSettings;
 
 import com.mongodb.MongoClient;
 import com.mongodb.client.FindIterable;
@@ -16,7 +18,7 @@ import com.mongodb.client.MongoDatabase;
  * defined as a range of values of a certain split field.  The application can read
  * each of these values in parallel via separate cursors obtained from this object.
  * 
- * Usage: SplitFinder s = new SplitFinder(collection, splitField, numSplits);
+ * Usage: SplitFinder s = new SplitFinder(db, collection, splitField, numSplits);
  *        // this creates the SplitFinder and causes it to determine the split boundaries
  *
  *        for (Document d : s.findRange(0)) { ... }
@@ -27,6 +29,7 @@ import com.mongodb.client.MongoDatabase;
  */
 public class SplitFinder {
 
+    protected MongoDatabase db;
 	protected MongoCollection<Document> coll;
 	protected String splitField;
 	protected int numRanges;
@@ -45,7 +48,10 @@ public class SplitFinder {
 	
 	protected List<Range> ranges;
 	
-	public SplitFinder (MongoCollection<Document> coll, String splitField, int numRanges) {
+	public SplitFinder (MongoDatabase db,
+	                    MongoCollection<Document> coll,
+	                    String splitField, int numRanges) {
+	  this.db = db;
 	  this.coll = coll;
 	  this.splitField = splitField;
 	  this.numRanges = numRanges;
@@ -53,35 +59,36 @@ public class SplitFinder {
 	  computeSplits();
 	}
 	
-	public SplitFinder (MongoCollection<Document> coll, int numRanges) {
-		this(coll, "_id", numRanges);
+	public SplitFinder (MongoDatabase db, MongoCollection<Document> coll, int numRanges) {
+		this(db, coll, "_id", numRanges);
 	}
 
-	/**
-	 * Computes the ranges for the splits by reading all values of the split fields
-	 * into an array and then dividing it into equal partitions.  Override this method
-	 * to implement other strategies, for example more heuristic ones that avoid
-	 * reading the whole collection.
-	 */
 	protected void computeSplits() {
-		if (numRanges == 1) return;
-		long count = coll.count();
-		List<Object> values = new ArrayList<Object>((int)count);
-		Document projection = splitField.equals("_id") 
-				            ? new Document(splitField, 1)
-		                    : new Document(splitField, 1).append("_id", 0);
-		for (Document d : coll.find().projection(projection).sort(new Document(splitField, 1))) {
-			values.add(d.get(splitField));
-		}
-		int splitStep = values.size() / numRanges;
-
-		ranges.add(new Range(null, values.get(splitStep)));
-		for (int i=1; i<numRanges-1; i++) {
-		    ranges.add(new Range(values.get(i*splitStep), values.get((i+1)*splitStep)));
-		}
-		ranges.add(new Range(values.get(splitStep*(numRanges-1)), null));
-		
-		values.clear();
+	   if (numRanges == 1) {
+	       ranges.add(new Range(null, null));
+	       return;
+	   }
+	   Document collStats = new Document("collStats",
+	                                     coll.getNamespace().getCollectionName().toString());
+	   Document stats = db.runCommand(collStats);
+	   int documentCount = stats.getInteger("count");
+	   int avgSize = stats.getInteger("avgObjSize");
+	   long chunkSize = (long)(2.0 * (double)documentCount * (double)avgSize / (double)numRanges);
+	   
+	   Document splitVectorCmd = new Document("splitVector", coll.getNamespace().toString())
+	                                  .append("keyPattern", new Document(splitField, 1))
+	                                  .append("maxChunkSizeBytes", chunkSize);
+	   Document splitVector = db.runCommand(splitVectorCmd);
+	   @SuppressWarnings("unchecked")
+	   List<Document> splitKeys = (List<Document>)splitVector.get("splitKeys");
+	   ranges.add(new Range(null, splitKeys.get(0).get(splitField)));
+	   for (int i=1; i<splitKeys.size(); i++) {
+	       ranges.add(new Range(splitKeys.get(i-1).get(splitField),
+	                            splitKeys.get(i).get(splitField)));
+	   }
+	   ranges.add(new Range(splitKeys.get(splitKeys.size()-1).get(splitField),
+	                        null));
+	   numRanges = ranges.size();
 	}
 	
 	public int getNumRanges() {
@@ -89,11 +96,11 @@ public class SplitFinder {
 	}
 	
 	public Object getLowerBound (int numRange) {
-		return ranges.get(numRange).lowerBound;
+	    return ranges.get(numRange).lowerBound;
 	}
 	
 	public Object getUpperBound (int numRange) {
-		return ranges.get(numRange).upperBound;
+	    return ranges.get(numRange).upperBound;
 	}
 	
 	public List<Range> getRanges() {
@@ -128,10 +135,13 @@ public class SplitFinder {
 	
 	public static void main(String[] args) throws Exception {
 		MongoClient c = new MongoClient("127.0.0.1:27017");
-		MongoDatabase db = c.getDatabase("cliente360");
-		MongoCollection<Document> coll = db.getCollection("cu_1_2015-12-22");
+		MongoDatabase db = c.getDatabase("test");
+		MongoCollection<Document> coll = db.getCollection("data");
 		
-		SplitFinder s = new SplitFinder(coll, 16);
+		SplitFinder s = new SplitFinder(db, coll, 1);
+		for (int i=0; i<s.getNumRanges(); i++) {
+		    System.out.println(i + " - " + s.getLowerBound(i) + " - " + s.getUpperBound(i));
+		}
 		
 	}
 	
