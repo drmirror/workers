@@ -38,6 +38,7 @@ public abstract class Worker {
 	protected MongoCollection<Document> dataCollection;
 	protected MongoCollection<Document> workCollection;
 	protected String fieldName;
+	protected Document projection;
 	
 	private int numUnits = -1;
 	
@@ -54,6 +55,7 @@ public abstract class Worker {
 			       String dbName,
 			       String collectionName,
 			       String fieldName,
+			       Document projection,
 			       int numUnits) {
 		this.client = client;
 		this.db = client.getDatabase(dbName);
@@ -61,9 +63,19 @@ public abstract class Worker {
 		this.dataCollection = db.getCollection(collectionName, Document.class);
 		this.workCollection = db.getCollection("work", Document.class);
 		this.fieldName = fieldName;
+		this.projection = projection;
 		this.numUnits = numUnits;
-		ensureWorkTable();
-		initialize();
+	}
+	
+	public Worker (MongoClient client,
+	               String dbName, String collectionName, String fieldName,
+	               int numUnits) {
+	    this(client, dbName, collectionName, fieldName, null, numUnits);
+	}
+
+	public void start() {
+	    ensureWorkTable();
+	    initialize();
 	}
 	
 	public String _id() {
@@ -343,7 +355,12 @@ public abstract class Worker {
 			rangePredicate.append("$lt", upperBound);
 		}
 		Document query = new Document(fieldName, rangePredicate);
-		return dataCollection.find(query).sort(new Document(fieldName,1));
+		if (projection == null)
+		    return dataCollection.find(query).sort(new Document(fieldName,1));
+		else
+		    return dataCollection.find(query)
+		                         .projection(projection)
+		                         .sort(new Document(fieldName,1));
 	}
 	
 }

@@ -33,7 +33,8 @@ public class DemoWorker extends Worker {
     
     public static void main(String[] args) {
         MongoClient client = new MongoClient("localhost:27017");
-        new DemoWorker(client, "test", "data", "_id", 10);
+        Worker w = new DemoWorker(client, "test", "data", "_id", 10);
+        w.start();
     }
 
 
