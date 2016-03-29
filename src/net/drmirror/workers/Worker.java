@@ -25,9 +25,9 @@ import com.mongodb.client.model.ReturnDocument;
  */
 public abstract class Worker {
 	
-    private static long BACKOFF_MILLIS = 100;
-    private static long MAX_LOCK_MILLIS = 1000;
-    private static long HEARTBEAT_MILLIS = 10000;
+    private static long BACKOFF_MILLIS = 1000;
+    private static long MAX_LOCK_MILLIS = 10000;
+    private static long HEARTBEAT_MILLIS = 100000;
     private static long MAX_MISSED_HEARTBEATS = 2;
     
     private String _id = java.util.UUID.randomUUID().toString();
